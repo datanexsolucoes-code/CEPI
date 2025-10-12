@@ -1,0 +1,5 @@
+peewee
+flet
+bcrypt
+reportlab
+python-dotenv
