@@ -12,7 +12,7 @@ load_dotenv()
 
 # Se houver variável DATABASE_URL (ex: do Neon), usa ela
 # Caso contrário, usa SQLite local
-DATABASE_URL = os.getenv("postgresql://neondb_owner:npg_RLdoDNj2ZJ1l@ep-falling-glitter-acucvk2t-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
     db = connect(DATABASE_URL)
