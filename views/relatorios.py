@@ -1,57 +1,49 @@
+import io
 import flet as ft
 from models.database import Funcionario, Uniforme, Comodato, Compra, ItemCompra, Fornecedor, Reparo
-from reportlab.pdfgen import canvas
-from tkinter import filedialog, Tk
-from datetime import datetime, date
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from datetime import datetime, date
 
-# Função que gera PDF
+# Função que gera PDF e inicia download
 def exportar_para_pdf_flet(page, titulo, colunas, tabela: ft.DataTable):
-    def salvar_pdf(file_picker_result):
-        if file_picker_result.path:
-            caminho = file_picker_result.path
-            dados = [[cell.content.value for cell in row.cells] for row in tabela.rows]
+    buffer = io.BytesIO()
+    dados = [[cell.content.value for cell in row.cells] for row in tabela.rows]
 
-            # Cria documento
-            doc = SimpleDocTemplate(caminho, pagesize=A4)
-            elementos = []
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elementos = []
 
-            # Estilo do título
-            styles = getSampleStyleSheet()
-            titulo_formatado = Paragraph(f"<b>{titulo}</b>", styles['Title'])
-            elementos.append(titulo_formatado)
-            elementos.append(Spacer(1, 12))
+    styles = getSampleStyleSheet()
+    titulo_formatado = Paragraph(f"<b>{titulo}</b>", styles['Title'])
+    elementos.append(titulo_formatado)
+    elementos.append(Spacer(1, 12))
 
-            # Junta colunas + dados
-            tabela_dados = [colunas] + dados
+    tabela_dados = [colunas] + dados
+    t = Table(tabela_dados, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    elementos.append(t)
 
-            # Cria tabela
-            t = Table(tabela_dados, repeatRows=1)
+    doc.build(elementos)
 
-            # Estilo da tabela
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
 
-                 ),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ]))
-
-            elementos.append(t)
-            doc.build(elementos)
-
-    # Picker
-    fp = ft.FilePicker(on_result=salvar_pdf)
-    page.overlay.append(fp)
+    file_name = f"{titulo.replace(' ', '_').lower()}.pdf"
+    page.download(file_name, pdf_bytes, "application/pdf")
+    page.snack_bar = ft.SnackBar(ft.Text(f"Download do PDF '{file_name}' iniciado!"))
+    page.snack_bar.open = True
     page.update()
-    fp.save_file(file_type="application/pdf")
+
 # View principal
 def view(page: ft.Page):
 
@@ -230,6 +222,7 @@ def view(page: ft.Page):
             tabela_compras
         ])
 
+    # ---------- Reparos Realizados ----------
     def gerar_reparos_realizados(page: ft.Page):
         data_inicio = ft.TextField(
             label="Data Inicial (dd/mm/yyyy)",
@@ -261,7 +254,6 @@ def view(page: ft.Page):
             rows=[]
         )
 
-        # Totalizador
         total_text = ft.Text(value="Total: R$ 0,00", size=16, weight="bold")
 
         def carregar_tabela(e=None):
@@ -284,7 +276,7 @@ def view(page: ft.Page):
                 query = query.where(Reparo.fornecedor == int(filtro_fornecedor.value))
 
             for r in query:
-                total += r.subtotal  # acumula subtotal
+                total += r.subtotal
 
                 rows.append(
                     ft.DataRow(
@@ -305,7 +297,6 @@ def view(page: ft.Page):
             total_text.update()
 
         btn_filtrar = ft.ElevatedButton("Filtrar", on_click=carregar_tabela)
-
         btn_exportar = ft.ElevatedButton(
             "Exportar PDF",
             on_click=lambda e: exportar_para_pdf_flet(
@@ -319,9 +310,10 @@ def view(page: ft.Page):
         return ft.Column([
             ft.Row([data_inicio, data_fim, filtro_fornecedor, btn_filtrar, btn_exportar], spacing=10),
             tabela_reparos,
-            total_text  # exibindo o total abaixo da tabela
+            total_text
         ])
-    # ---------- Tabs finais ----------
+
+    # Tabs finais
     return ft.Tabs(
         selected_index=0,
         animation_duration=300,
