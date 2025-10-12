@@ -13,6 +13,7 @@ load_dotenv()
 # Se houver variável DATABASE_URL (ex: do Neon), usa ela
 # Caso contrário, usa SQLite local
 DATABASE_URL = os.getenv("DATABASE_URL")
+print("DEBUG: DATABASE_URL =", DATABASE_URL)
 
 if DATABASE_URL:
     db = connect(DATABASE_URL)
