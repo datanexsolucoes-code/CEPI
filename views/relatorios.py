@@ -46,7 +46,7 @@ def exportar_para_pdf_flet(page, titulo, colunas, tabela: ft.DataTable):
 
 # View principal
 def view(page: ft.Page):
-
+    page.scroll = "auto"
     # ---------- Comodatos Ativos ----------
     def gerar_comodatos_ativos():
         rows = []
@@ -90,7 +90,7 @@ def view(page: ft.Page):
             )
         )
 
-        return ft.Column([btn_exportar, tabela])
+        return ft.Column([btn_exportar, tabela], scroll = "auto")
 
     # ---------- Estoque Atual ----------
     def gerar_estoque_atual():
@@ -131,7 +131,7 @@ def view(page: ft.Page):
                 tabela
             )
         )
-        return ft.Column([btn_exportar, tabela])
+        return ft.Column([btn_exportar, tabela], scroll = "auto")
 
     # ---------- Compras Realizadas ----------
     def gerar_compras_realizadas():
@@ -218,7 +218,7 @@ def view(page: ft.Page):
             )
         )
         return ft.Column([
-            ft.Row([data_inicio, data_fim, filtro_fornecedor, btn_filtrar, btn_exportar], spacing=10),
+            ft.Row([data_inicio, data_fim, filtro_fornecedor, btn_filtrar, btn_exportar], spacing=10, scroll = "auto"),
             tabela_compras
         ])
 
@@ -270,7 +270,7 @@ def view(page: ft.Page):
             query = Reparo.select().join(Fornecedor)
 
             if dt_inicio and dt_fim:
-                query = query.where((Reparo.data_repado >= dt_inicio) & (Reparo.data_repado <= dt_fim))
+                query = query.where((Reparo.data_reparo >= dt_inicio) & (Reparo.data_reparo <= dt_fim))
 
             if filtro_fornecedor.value:
                 query = query.where(Reparo.fornecedor == int(filtro_fornecedor.value))
@@ -281,7 +281,7 @@ def view(page: ft.Page):
                 rows.append(
                     ft.DataRow(
                         cells=[
-                            ft.DataCell(ft.Text(r.data_repado.strftime("%d/%m/%Y"))),
+                            ft.DataCell(ft.Text(r.data_reparo.strftime("%d/%m/%Y"))),
                             ft.DataCell(ft.Text(r.fornecedor.nome)),
                             ft.DataCell(ft.Text(r.reparo)),
                             ft.DataCell(ft.Text(str(r.quantidade))),
@@ -311,7 +311,7 @@ def view(page: ft.Page):
             ft.Row([data_inicio, data_fim, filtro_fornecedor, btn_filtrar, btn_exportar], spacing=10),
             tabela_reparos,
             total_text
-        ])
+        ], scroll = "auto")
 
     # Tabs finais
     return ft.Tabs(

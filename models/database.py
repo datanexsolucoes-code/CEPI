@@ -1,24 +1,41 @@
+# models/database.py
 import os
 import sys
 from peewee import *
 from datetime import date
 from playhouse.db_url import connect
+from playhouse.shortcuts import ReconnectMixin
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # ==========================
 # Configuração do Banco
 # ==========================
 
-# Se houver variável DATABASE_URL (ex: do Neon), usa ela
-# Caso contrário, usa SQLite local
 DATABASE_URL = os.getenv("DATABASE_URL")
-print("DEBUG: DATABASE_URL =", DATABASE_URL)
+print(f"DEBUG: Conectando ao banco -> {DATABASE_URL or 'SQLite local'}")
+
+# Classe que adiciona reconexão automática (para Neon/PostgreSQL)
+class ReconnectPostgresqlDatabase(ReconnectMixin, PostgresqlDatabase):
+    pass
 
 if DATABASE_URL:
+    # Conecta ao Neon
     db = connect(DATABASE_URL)
+
+    # Se for um Postgres puro, força reconexão automática
+    if isinstance(db, PostgresqlDatabase):
+        db = ReconnectPostgresqlDatabase(
+            db.database,
+            user=db.connect_params.get("user"),
+            password=db.connect_params.get("password"),
+            host=db.connect_params.get("host"),
+            port=db.connect_params.get("port"),
+            autorollback=True
+        )
 else:
-    # Caminho local (para quando rodar sem Neon)
+    # Caminho local (SQLite)
     if getattr(sys, 'frozen', False):
         BASE_DIR = os.path.dirname(sys.executable)
     else:
@@ -125,17 +142,39 @@ class Reparo(BaseModel):
     subtotal = FloatField(null=False)
 
 
+# ==========================
+# Funções auxiliares
+# ==========================
+
+def ensure_connection():
+    """Garante que a conexão com o banco esteja aberta."""
+    if db.is_closed():
+        try:
+            db.connect(reuse_if_open=True)
+        except Exception as e:
+            print(f"⚠️ Erro ao reconectar ao banco: {e}")
+
+
 def inicializar_banco():
-    with db:
-        db.create_tables([
-            Fornecedor,
-            Funcionario,
-            Uniforme,
-            Entrega,
-            ItemEntrega,
-            Comodato,
-            Compra,
-            ItemCompra,
-            Users,
-            Reparo
-        ])
+    """Cria as tabelas, se não existirem."""
+    ensure_connection()
+    db.create_tables([
+        Fornecedor,
+        Funcionario,
+        Uniforme,
+        Entrega,
+        ItemEntrega,
+        Comodato,
+        Compra,
+        ItemCompra,
+        Users,
+        Reparo
+    ])
+    print("✅ Banco inicializado com sucesso.")
+
+
+# ==========================
+# Execução direta (teste)
+# ==========================
+if __name__ == "__main__":
+    inicializar_banco()

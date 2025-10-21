@@ -159,5 +159,5 @@ def main(page: ft.Page):
 
 # Executa app
 if __name__ == "__main__":
-    #ft.app(target=main)
-    ft.app(target=main, view=ft.WEB_BROWSER, assets_dir="Imagens")
+    ft.app(target=main)
+    #ft.app(target=main, view=ft.WEB_BROWSER, assets_dir="Imagens")
