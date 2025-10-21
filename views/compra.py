@@ -8,6 +8,7 @@ lista_deposito = ["Escritório", "Opala"]
 
 def view(page: ft.Page):
     page.scroll = "auto"
+
     # --- Dropdowns e controles ---
     fornecedor_dropdown = ft.Dropdown(label="Fornecedor", options=[], width=300)
     uniforme_dropdown = ft.Dropdown(label="Uniforme", options=[], width=300)
@@ -64,7 +65,6 @@ def view(page: ft.Page):
                     itens_compra.pop(i)
                     atualizar_tabela()
                     atualizar_subtotal()
-
                 return remover_item
 
             tabela_itens.rows.append(ft.DataRow(cells=[
@@ -82,7 +82,6 @@ def view(page: ft.Page):
     def adicionar_item(e):
         try:
             db.connect(reuse_if_open=True)
-            # Pega primeiro uniforme com a descrição escolhida
             u = Uniforme.select().where(Uniforme.descricao == uniforme_dropdown.value).first()
             qtd = int(quantidade.value)
             preco = float(preco_unitario.value)
@@ -139,7 +138,6 @@ def view(page: ft.Page):
                     subtotal=subtotal,
                     estado="Novo"
                 )
-                # Atualiza Uniforme
                 u = item["produto"]
                 u.quantidade_estoque += item["quantidade"]
                 u.estado = "Novo"
@@ -195,81 +193,90 @@ def view(page: ft.Page):
     filtro_nome = ft.TextField(label="Buscar por fornecedor", width=300)
     btn_consultar = ft.ElevatedButton("Consultar", on_click=lambda e: carregar_compras(filtro_nome.value))
 
-    # --- Função carregar compras ---
+    # --- Função carregar compras (com mensagens de status) ---
     def carregar_compras(filtro=""):
-        tabela_compras.rows.clear()
-        db.connect(reuse_if_open=True)
-
-        query = Compra.select().join(Fornecedor)
-        if filtro:
-            query = query.where(Fornecedor.nome.contains(filtro))
-
-        for compra in query.order_by(Compra.data_compra.desc()):
-
-            def excluir_compra_closure(c=compra):
-                def excluir_compra(e):
-                    try:
-                        # devolve estoque
-                        for item in ItemCompra.select().where(ItemCompra.compra == c):
-                            u = item.uniforme
-                            u.quantidade_estoque -= item.quantidade
-                            u.save()
-                        # apaga itens e compra
-                        ItemCompra.delete().where(ItemCompra.compra == c).execute()
-                        c.delete_instance()
-                        msg_consulta.value = f"Compra {c.id} excluída com sucesso."
-                        msg_consulta.color = "green"
-                        carregar_compras(filtro_nome.value)
-                        tabela_itens_compra.rows.clear()
-                        page.update()
-                    except Exception as ex:
-                        msg_consulta.value = f"Erro ao excluir: {ex}"
-                        msg_consulta.color = "red"
-                        page.update()
-
-                return excluir_compra
-
-            def mostrar_detalhes_closure(c=compra):
-                def mostrar_detalhes(e):
-                    tabela_itens_compra.rows.clear()
-                    for item in ItemCompra.select().where(ItemCompra.compra == c):
-                        try:
-                            descricao_uniforme = item.uniforme.descricao
-                        except Uniforme.DoesNotExist:
-                            descricao_uniforme = "Uniforme removido"  # fallback
-
-                        tabela_itens_compra.rows.append(ft.DataRow(cells=[
-                            ft.DataCell(ft.Text(descricao_uniforme)),
-                            ft.DataCell(ft.Text(item.tamanho)),
-                            ft.DataCell(ft.Text(str(item.quantidade))),
-                            ft.DataCell(ft.Text(f"R$ {item.preco_unitario:.2f}")),
-                            ft.DataCell(ft.Text(f"R$ {item.subtotal:.2f}")),
-                        ]))
-                    page.update()
-
-                return mostrar_detalhes
-
-            tabela_compras.rows.append(ft.DataRow(cells=[
-                ft.DataCell(ft.Text(str(compra.id))),
-                ft.DataCell(ft.Text(compra.fornecedor.nome)),
-                ft.DataCell(ft.Text(compra.data_compra.strftime("%d/%m/%Y"))),
-                ft.DataCell(ft.Text(f"R$ {compra.valor:,.2f}")),
-                ft.DataCell(ft.Row([
-                    ft.IconButton(icon=ft.Icons.VISIBILITY, tooltip="Detalhes", on_click=mostrar_detalhes_closure()),
-                    ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", on_click=excluir_compra_closure()),
-                ]))
-            ]))
-
-        db.close()
+        msg_consulta.value = "🔄 Pesquisando..."
+        msg_consulta.color = "blue"
         page.update()
+
+        try:
+            tabela_compras.rows.clear()
+            tabela_itens_compra.rows.clear()
+            db.connect(reuse_if_open=True)
+
+            query = Compra.select().join(Fornecedor)
+            if filtro:
+                query = query.where(Fornecedor.nome.contains(filtro))
+
+            for compra in query.order_by(Compra.data_compra.desc()):
+
+                def excluir_compra_closure(c=compra):
+                    def excluir_compra(e):
+                        try:
+                            for item in ItemCompra.select().where(ItemCompra.compra == c):
+                                u = item.uniforme
+                                u.quantidade_estoque -= item.quantidade
+                                u.save()
+                            ItemCompra.delete().where(ItemCompra.compra == c).execute()
+                            c.delete_instance()
+                            msg_consulta.value = f"Compra {c.id} excluída com sucesso."
+                            msg_consulta.color = "green"
+                            carregar_compras(filtro_nome.value)
+                            tabela_itens_compra.rows.clear()
+                            page.update()
+                        except Exception as ex:
+                            msg_consulta.value = f"Erro ao excluir: {ex}"
+                            msg_consulta.color = "red"
+                            page.update()
+                    return excluir_compra
+
+                def mostrar_detalhes_closure(c=compra):
+                    def mostrar_detalhes(e):
+                        tabela_itens_compra.rows.clear()
+                        for item in ItemCompra.select().where(ItemCompra.compra == c):
+                            try:
+                                descricao_uniforme = item.uniforme.descricao
+                            except Uniforme.DoesNotExist:
+                                descricao_uniforme = "Uniforme removido"
+                            tabela_itens_compra.rows.append(ft.DataRow(cells=[
+                                ft.DataCell(ft.Text(descricao_uniforme)),
+                                ft.DataCell(ft.Text(item.tamanho)),
+                                ft.DataCell(ft.Text(str(item.quantidade))),
+                                ft.DataCell(ft.Text(f"R$ {item.preco_unitario:.2f}")),
+                                ft.DataCell(ft.Text(f"R$ {item.subtotal:.2f}")),
+                            ]))
+                        page.update()
+                    return mostrar_detalhes
+
+                tabela_compras.rows.append(ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(str(compra.id))),
+                    ft.DataCell(ft.Text(compra.fornecedor.nome)),
+                    ft.DataCell(ft.Text(compra.data_compra.strftime("%d/%m/%Y"))),
+                    ft.DataCell(ft.Text(f"R$ {compra.valor:,.2f}")),
+                    ft.DataCell(ft.Row([
+                        ft.IconButton(icon=ft.Icons.VISIBILITY, tooltip="Detalhes", on_click=mostrar_detalhes_closure()),
+                        ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", on_click=excluir_compra_closure()),
+                    ]))
+                ]))
+
+            msg_consulta.value = "✅ Consulta concluída."
+            msg_consulta.color = "green"
+
+        except Exception as ex:
+            msg_consulta.value = f"Erro ao consultar: {ex}"
+            msg_consulta.color = "red"
+
+        finally:
+            db.close()
+            page.update()
 
     aba_consulta = ft.Column([
         ft.Text("Consulta de Compras", size=20, weight="bold"),
         ft.Row([filtro_nome, btn_consultar], spacing=10),
+        msg_consulta,
         tabela_compras,
         ft.Text("Itens da Compra Selecionada:", size=16, weight="bold"),
         tabela_itens_compra,
-        msg_consulta,
     ], expand=True, scroll="auto")
 
     abas = ft.Tabs(expand=True, selected_index=0, tabs=[
