@@ -3,11 +3,22 @@ from datetime import datetime, date
 from collections import defaultdict
 from models.database import Funcionario, Uniforme, Entrega, ItemEntrega, Comodato, db
 
+
 def view(page: ft.Page):
     page.scroll = "auto"
     db.connect(reuse_if_open=True)
+
+    # --- Carrega dados apenas no início ---
     funcionarios = list(Funcionario.select())
     uniformes = list(Uniforme.select())
+
+    # Agrupa uniformes por descrição para gerar dropdown "distinct"
+    descr_map = defaultdict(list)
+    for u in uniformes:
+        descr_map[u.descricao].append(u)
+
+    # Opções únicas de descrição
+    uniforme_descr_options = [ft.dropdown.Option(d, d) for d in descr_map.keys()]
 
     # --- Cadastro ---
     itens_container = ft.Column()
@@ -29,32 +40,43 @@ def view(page: ft.Page):
             page.snack_bar.open = True
             page.update()
         except Exception as err:
-            # Fallback caso SnackBar falhe por qualquer motivo
             print("SnackBar error:", err)
             page.dialog = ft.AlertDialog(title=ft.Text(msg))
             page.dialog.open = True
             page.update()
 
-    # Função para atualizar dropdowns dependentes de acordo com Uniforme selecionado
+    # Atualiza os dropdowns dependentes com base na descrição do uniforme
     def atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd):
-        if not uniforme_dd.value:
+        desc = uniforme_dd.value
+        if not desc:
             return
 
-        uni = Uniforme.get_by_id(int(uniforme_dd.value))
-        # Filtrar opções disponíveis para os outros dropdowns com base no uniforme
-        estado_dd.options = [ft.dropdown.Option(uni.estado)]
-        estado_dd.value = uni.estado
-        tamanho_dd.options = [ft.dropdown.Option(uni.tamanho)]
-        tamanho_dd.value = uni.tamanho
-        deposito_dd.options = [ft.dropdown.Option(uni.deposito)]
-        deposito_dd.value = uni.deposito
+        unis = descr_map.get(desc, [])
+        if not unis:
+            return
+
+        estados = sorted({u.estado for u in unis if u.estado})
+        tamanhos = sorted({u.tamanho for u in unis if u.tamanho})
+        depositos = sorted({u.deposito for u in unis if u.deposito})
+
+        estado_dd.options = [ft.dropdown.Option(e, e) for e in estados]
+        tamanho_dd.options = [ft.dropdown.Option(t, t) for t in tamanhos]
+        deposito_dd.options = [ft.dropdown.Option(d, d) for d in depositos]
+
+        if estados:
+            estado_dd.value = estados[0]
+        if tamanhos:
+            tamanho_dd.value = tamanhos[0]
+        if depositos:
+            deposito_dd.value = depositos[0]
+
         page.update()
 
     # Adicionar nova linha de item
     def adicionar_item(e=None):
         uniforme_dd = ft.Dropdown(
             label="Uniforme",
-            options=[ft.dropdown.Option(str(u.id), u.descricao) for u in uniformes],
+            options=uniforme_descr_options,
             width=250
         )
         estado_dd = ft.Dropdown(label="Estado", width=150)
@@ -62,7 +84,6 @@ def view(page: ft.Page):
         deposito_dd = ft.Dropdown(label="Depósito", width=200)
         qtd_tf = ft.TextField(label="Quantidade", width=150)
 
-        # atualizar dropdowns ao selecionar uniforme
         uniforme_dd.on_change = lambda e: atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd)
 
         linha = ft.Row(
@@ -117,13 +138,13 @@ def view(page: ft.Page):
                 deposito_dd = row.controls[3]
                 qtd_tf = row.controls[4]
 
-                uni_id = (uniforme_dd.value or "").strip()
+                descricao = (uniforme_dd.value or "").strip()
                 qtd_txt = (qtd_tf.value or "").strip()
                 estado = (estado_dd.value or "").strip()
                 tamanho = (tamanho_dd.value or "").strip()
                 deposito = (deposito_dd.value or "").strip()
 
-                if not (uni_id and qtd_txt):
+                if not (descricao and qtd_txt):
                     continue
 
                 try:
@@ -135,7 +156,21 @@ def view(page: ft.Page):
                     show_message("Quantidade inválida!", "red")
                     return
 
-                uni = Uniforme.get_by_id(int(uni_id))
+                # Localiza o uniforme pela combinação (sem nova query global)
+                try:
+                    uni = Uniforme.get(
+                        (Uniforme.descricao == descricao) &
+                        (Uniforme.tamanho == tamanho) &
+                        (Uniforme.deposito == deposito)
+                    )
+                except Uniforme.DoesNotExist:
+                    grupo = descr_map.get(descricao, [])
+                    if grupo:
+                        uni = grupo[0]
+                    else:
+                        show_message(f"Uniforme {descricao} não encontrado.", "red")
+                        return
+
                 if qtd > (uni.quantidade_estoque or 0):
                     show_message(f"Estoque insuficiente para {uni.descricao}.", "red")
                     return
@@ -160,7 +195,6 @@ def view(page: ft.Page):
                 )
 
                 for it in itens_validos:
-                    # Cria item de entrega
                     ItemEntrega.create(
                         entrega=ent,
                         uniforme=it["uni"],
@@ -169,7 +203,6 @@ def view(page: ft.Page):
                         tamanho=it["tamanho"]
                     )
 
-                    # Cria comodato correspondente
                     Comodato.create(
                         entrega=ent,
                         funcionario=int(funcionario_dd.value),
@@ -179,7 +212,6 @@ def view(page: ft.Page):
                         ativo=True
                     )
 
-                    # Baixa estoque
                     it["uni"].quantidade_estoque = (it["uni"].quantidade_estoque or 0) - it["qtd"]
                     it["uni"].save()
 
@@ -189,6 +221,7 @@ def view(page: ft.Page):
         except Exception as ex:
             print("Erro salvar_entrega:", ex)
             show_message(f"Erro ao salvar entrega: {ex}", "red")
+
     # Botões
     btn_add = ft.IconButton(icon=ft.Icons.ADD, icon_color="green", on_click=adicionar_item)
 
@@ -200,7 +233,6 @@ def view(page: ft.Page):
         itens_container,
         ft.ElevatedButton(text="Salvar Entrega", on_click=salvar_entrega),
     ], scroll="auto")
-
 
     ###### Pesquisa #####
     data_inicio = ft.TextField(
@@ -221,7 +253,6 @@ def view(page: ft.Page):
         width=300
     )
 
-    # Lista de resultados com scroll
     resultado_lista = ft.ListView(
         expand=True,
         spacing=5,
@@ -229,20 +260,17 @@ def view(page: ft.Page):
         on_scroll_interval=True
     )
 
-    # Função de excluir entrega
     def excluir_entrega(entrega_id):
         try:
             with db.atomic():
                 entrega = Entrega.get_by_id(entrega_id)
                 itens = list(ItemEntrega.select().where(ItemEntrega.entrega == entrega.id))
 
-                # devolve estoque
                 for item in itens:
                     uni = item.uniforme
                     uni.quantidade_estoque = (uni.quantidade_estoque or 0) + item.quantidade
                     uni.save()
 
-                # desativa registros de comodato relacionados a esses uniformes e funcionário
                 for item in itens:
                     Comodato.update(ativo=False).where(
                         (Comodato.funcionario == entrega.funcionario) &
@@ -250,19 +278,23 @@ def view(page: ft.Page):
                         (Comodato.ativo == True)
                     ).execute()
 
-                # exclui itens e entrega
                 ItemEntrega.delete().where(ItemEntrega.entrega == entrega.id).execute()
                 entrega.delete_instance()
 
             show_message("Entrega excluída, estoque atualizado e comodato desativado!", "green")
-            pesquisar_entregas(None)  # atualiza a lista
+            pesquisar_entregas(None)
         except Exception as ex:
             print(">> ERRO ao excluir entrega:", ex)
             show_message(f"Erro ao excluir entrega: {ex}", "red")
 
-    # Função de pesquisa
+    msg_consulta = ft.Text()
+
     def pesquisar_entregas(e):
         resultado_lista.controls.clear()
+        msg_consulta.value = "🔄 Pesquisando..."
+        msg_consulta.color = "blue"
+        page.update()
+
         try:
             inicio = datetime.strptime(data_inicio.value, "%d/%m/%Y").date()
             fim = datetime.strptime(data_fim.value, "%d/%m/%Y").date()
@@ -295,7 +327,7 @@ def view(page: ft.Page):
                 resultado_lista.controls.append(
                     ft.Card(
                         content=ft.Column([
-                            ft.Text(f"Data: {data_str} - Funcionário: {func} - Entregue po: {user}", weight="bold"),
+                            ft.Text(f"Data: {data_str} - Funcionário: {func} - Entregue por: {user}", weight="bold"),
                             itens_column,
                             ft.Row([
                                 ft.IconButton(
@@ -309,25 +341,23 @@ def view(page: ft.Page):
                         elevation=2
                     )
                 )
+        msg_consulta.value = "✅ Consulta concluída."
+        msg_consulta.color = "green"
+        db.close()
         page.update()
 
-    # Layout da aba de pesquisa
     pesquisa_layout = ft.Column(
         [
             ft.Text("Pesquisar Entregas", size=20, weight="bold"),
             ft.Row([data_inicio, data_fim], spacing=10),
             funcionario_filtro_dd,
+            msg_consulta,
             ft.ElevatedButton(text="Pesquisar", icon=ft.Icons.SEARCH, on_click=pesquisar_entregas),
-            ft.Container(
-                content=resultado_lista,
-                expand=True,
-                padding=0
-            )
+            ft.Container(content=resultado_lista, expand=True, padding=0)
         ],
         expand=True, scroll="auto"
     )
 
-    # --- Tabs ---
     tabs = ft.Tabs(
         selected_index=0,
         tabs=[
@@ -336,7 +366,5 @@ def view(page: ft.Page):
         ]
     )
 
-    # Inicializa com uma linha vazia
     adicionar_item()
-
     return tabs

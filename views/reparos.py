@@ -189,36 +189,64 @@ def view(page: ft.Page):
         ], rows=[])
 
         msg_consulta = ft.Text()
-        filtro_nome = ft.TextField(label="Buscar por fornecedor", width=300)
-        btn_consultar = ft.ElevatedButton("Consultar", on_click=lambda e: carregar_reparos(filtro_nome.value))
 
-        def carregar_reparos(filtro=""):
+        # --- Campos de filtro ---
+        filtro_nome = ft.TextField(label="Buscar por fornecedor", width=250)
+        filtro_data_inicio = ft.TextField(label="Data início (dd/mm/aaaa)", width=180)
+        filtro_data_fim = ft.TextField(label="Data fim (dd/mm/aaaa)", width=180)
+
+        def carregar_reparos(filtro="", data_inicio="", data_fim=""):
             msg_consulta.value = "🔄 Pesquisando..."
             msg_consulta.color = "blue"
             page.update()
 
+            from datetime import datetime
             try:
                 tabela_reparos.rows.clear()
                 db.connect(reuse_if_open=True)
 
                 query = Reparo.select().join(Fornecedor)
+
+                # --- Filtros dinâmicos ---
                 if filtro:
                     query = query.where(Fornecedor.nome.contains(filtro))
 
-                for reparo in query.order_by(Reparo.data_reparo.desc()):
+                # --- Filtro por datas ---
+                if data_inicio:
+                    try:
+                        data_i = datetime.strptime(data_inicio, "%d/%m/%Y").date()
+                        query = query.where(Reparo.data_reparo >= data_i)
+                    except ValueError:
+                        msg_consulta.value = "⚠️ Data inicial inválida. Use o formato dd/mm/aaaa."
+                        msg_consulta.color = "orange"
+                        page.update()
+                        return
 
+                if data_fim:
+                    try:
+                        data_f = datetime.strptime(data_fim, "%d/%m/%Y").date()
+                        query = query.where(Reparo.data_reparo <= data_f)
+                    except ValueError:
+                        msg_consulta.value = "⚠️ Data final inválida. Use o formato dd/mm/aaaa."
+                        msg_consulta.color = "orange"
+                        page.update()
+                        return
+
+                # --- Executa a consulta ---
+                for reparo in query.order_by(Reparo.data_reparo.desc()):
                     def excluir_reparo_closure(r=reparo):
                         def excluir_reparo(e):
                             try:
                                 r.delete_instance()
                                 msg_consulta.value = f"Reparo {r.id} excluído com sucesso."
                                 msg_consulta.color = "green"
-                                carregar_reparos(filtro_nome.value)
+                                carregar_reparos(filtro_nome.value, filtro_data_inicio.value, filtro_data_fim.value)
                             except Exception as ex:
                                 msg_consulta.value = f"Erro ao excluir: {ex}"
                                 msg_consulta.color = "red"
                             finally:
                                 page.update()
+
                         return excluir_reparo
 
                     tabela_reparos.rows.append(ft.DataRow(cells=[
@@ -247,9 +275,24 @@ def view(page: ft.Page):
                 db.close()
                 page.update()
 
+        btn_consultar = ft.ElevatedButton(
+            "Consultar",
+            on_click=lambda e: carregar_reparos(
+                filtro_nome.value,
+                filtro_data_inicio.value,
+                filtro_data_fim.value
+            )
+        )
+
+        # --- Layout da aba ---
         aba_consulta = ft.Column([
             ft.Text("Consulta de Reparos", size=20, weight="bold"),
-            ft.Row([filtro_nome, btn_consultar], spacing=10),
+            ft.ResponsiveRow([
+                ft.Container(filtro_nome, col={"xs": 12, "md": 4}),
+                ft.Container(filtro_data_inicio, col={"xs": 6, "md": 3}),
+                ft.Container(filtro_data_fim, col={"xs": 6, "md": 3}),
+                ft.Container(btn_consultar, col={"xs": 12, "md": 2}, alignment=ft.alignment.center),
+            ], spacing=10),
             msg_consulta,
             tabela_reparos,
         ], expand=True, scroll="auto")
