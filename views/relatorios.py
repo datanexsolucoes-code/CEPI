@@ -1,4 +1,4 @@
-import io
+import io, sys, os
 import flet as ft
 from models.database import Funcionario, Uniforme, Comodato, Compra, ItemCompra, Fornecedor, Reparo, db
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -8,41 +8,97 @@ from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime, date
 
 # Função que gera PDF e inicia download
-def exportar_para_pdf_flet(page, titulo, colunas, tabela: ft.DataTable):
-    buffer = io.BytesIO()
-    dados = [[cell.content.value for cell in row.cells] for row in tabela.rows]
+def salvar_ou_download_pdf(page, pdf_bytes, file_name):
+    # 🌐 Se estiver rodando no navegador
+    if hasattr(page, "web") and page.web:
+        page.download(file_name, pdf_bytes, "application/pdf")
+        page.snack_bar = ft.SnackBar(ft.Text(f"📄 Download do PDF '{file_name}' iniciado!"))
+        page.snack_bar.open = True
+        page.update()
+        return
 
+    # 🖥️ Caso contrário, salva localmente
+    try:
+        # Detecta se está empacotado ou rodando no Python puro
+        if getattr(sys, '_MEIPASS', False):
+            base_dir = os.path.expanduser("~/Downloads")
+        else:
+            base_dir = os.path.join(os.getcwd(), "exports")
+
+        os.makedirs(base_dir, exist_ok=True)
+        file_path = os.path.join(base_dir, file_name)
+
+        with open(file_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        page.snack_bar = ft.SnackBar(ft.Text(f"📄 PDF salvo em: {file_path}"))
+        page.snack_bar.open = True
+        page.update()
+        print(f"✅ PDF gerado em: {file_path}")
+
+    except Exception as e:
+        page.snack_bar = ft.SnackBar(ft.Text(f"❌ Erro ao salvar PDF: {e}"))
+        page.snack_bar.open = True
+        page.update()
+        print("Erro ao exportar PDF:", e)
+
+def exportar_para_pdf_flet(page, titulo, colunas, tabela=None, dados=None):
+    """
+    Exporta um relatório em PDF compatível com Flet Web e app compilado (PyInstaller).
+    Pode receber um ft.DataTable ou uma lista de listas em 'dados'.
+    """
+    import io
+    from datetime import datetime
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    import os, sys
+
+    buffer = io.BytesIO()
+
+    # --- Extrai dados da tabela se houver ---
+    if tabela is not None:
+        dados = [[cell.content.value for cell in row.cells] for row in tabela.rows]
+
+    if not dados:
+        page.snack_bar = ft.SnackBar(ft.Text("⚠️ Nenhum dado disponível para exportar!"))
+        page.snack_bar.open = True
+        page.update()
+        return
+
+    # --- Gera o PDF ---
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     elementos = []
 
     styles = getSampleStyleSheet()
-    titulo_formatado = Paragraph(f"<b>{titulo}</b>", styles['Title'])
+    titulo_formatado = Paragraph(f"<b>{titulo}</b>", styles["Title"])
     elementos.append(titulo_formatado)
     elementos.append(Spacer(1, 12))
 
     tabela_dados = [colunas] + dados
     t = Table(tabela_dados, repeatRows=1)
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 1, colors.black),
     ]))
     elementos.append(t)
 
     doc.build(elementos)
-
     pdf_bytes = buffer.getvalue()
     buffer.close()
 
-    file_name = f"{titulo.replace(' ', '_').lower()}.pdf"
-    page.download(file_name, pdf_bytes, "application/pdf")
-    page.snack_bar = ft.SnackBar(ft.Text(f"Download do PDF '{file_name}' iniciado!"))
-    page.snack_bar.open = True
-    page.update()
+    # --- Nome do arquivo ---
+    data_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_name = f"{titulo.replace(' ', '_').lower()}_{data_str}.pdf"
+
+    # --- Salva ou baixa ---
+    salvar_ou_download_pdf(page, pdf_bytes, file_name)
 
 # View principal
 def view(page: ft.Page):
@@ -50,6 +106,7 @@ def view(page: ft.Page):
     # ---------- Comodatos Ativos ----------
     def gerar_comodatos_ativos():
         msg_consulta = ft.Text()
+        msg_pdf = ft.Text()
         conteudo_resultado = ft.Column(spacing=10, scroll="auto")
 
         # --- Dropdown com funcionários que têm comodatos ativos ---
@@ -111,35 +168,46 @@ def view(page: ft.Page):
                     if atual_funcionario != c.funcionario.nome:
                         # Fecha grupo anterior
                         if atual_funcionario is not None:
+                            conteudo_resultado.controls.append(grupo)
                             conteudo_resultado.controls.append(
                                 ft.Container(ft.Divider(color="gray", thickness=1), padding=5)
                             )
-                            conteudo_resultado.controls.append(grupo)
                             grupo = ft.Column(spacing=2)
 
                         atual_funcionario = c.funcionario.nome
 
-                        conteudo_resultado.controls.append(
-                            ft.Text(
-                                f"👤 {atual_funcionario}",
-                                size=18,
-                                weight="bold",
-                                color="blue",
-                            )
+                        # Novo bloco do funcionário
+                        grupo = ft.Column(
+                            [
+                                ft.Text(
+                                    f"👤 {atual_funcionario}",
+                                    size=18,
+                                    weight="bold",
+                                    color="blue",
+                                )
+                            ],
+                            spacing=3,
                         )
 
-                    # Linha única por item
+                    # Itens do funcionário (com recuo visual)
                     grupo.controls.append(
-                        ft.Row(
-                            controls=[
-                                ft.Text(f"{c.uniforme.descricao}", width=300),
-                                ft.Text(f"Qtd: {c.quantidade}", width=100),
-                                ft.Text(f"Data: {c.data_entrega.strftime('%d/%m/%Y')}"),
-                            ],
-                            spacing=20,
-                            alignment=ft.MainAxisAlignment.START,
+                        ft.Container(
+                            ft.Row(
+                                controls=[
+                                    ft.Text(f"{c.uniforme.descricao}", width=300),
+                                    ft.Text(f"Qtd: {c.quantidade}", width=100),
+                                    ft.Text(f"Data: {c.data_entrega.strftime('%d/%m/%Y')}"),
+                                ],
+                                spacing=20,
+                                alignment=ft.MainAxisAlignment.START,
+                            ),
+                            padding=ft.padding.only(left=20),  # <-- Recuo visual
                         )
                     )
+
+                # Adiciona último grupo
+                if grupo.controls:
+                    conteudo_resultado.controls.append(grupo)
 
                 # Adiciona último grupo
                 if grupo.controls:
@@ -153,13 +221,23 @@ def view(page: ft.Page):
                     ft.Container(
                         ft.ElevatedButton(
                             "📄 Exportar PDF",
-                            on_click=lambda e: exportar_para_pdf_flet(
-                                page,
-                                "Comodatos Ativos",
-                                ["Funcionário", "Uniforme", "Quantidade", "Data Entrega"],
-                                None
-                            ),
                             icon=ft.Icons.PICTURE_AS_PDF,
+                            on_click=lambda e: (
+                                exportar_para_pdf_flet(
+                                    page,
+                                    "Comodatos Ativos",
+                                    ["Funcionário", "Uniforme", "Quantidade", "Data Entrega"],
+                                    dados=[
+                                        [c.funcionario.nome, c.uniforme.descricao, c.quantidade,
+                                         c.data_entrega.strftime("%d/%m/%Y")]
+                                        for c in query
+                                    ],
+                                ),
+                                setattr(msg_pdf, "value",
+                                        "✅ PDF gerado em: F:\\Projetos\\CEPI\\exports\\comodatos_ativos.pdf"),
+                                setattr(msg_pdf, "color", "green"),
+                                page.update()
+                            ),
                         ),
                         alignment=ft.alignment.center,
                         padding=10,
@@ -185,6 +263,9 @@ def view(page: ft.Page):
                 ft.Row([dd_funcionarios, btn_pesquisar], spacing=10),
                 msg_consulta,
                 ft.Container(conteudo_resultado, expand=True),
+                ft.Row([msg_pdf]
+                       , alignment=ft.MainAxisAlignment.CENTER
+                       ),
             ],
             expand=True,
             scroll="auto",
@@ -216,11 +297,16 @@ def view(page: ft.Page):
         )
 
         # --- Função para consultar estoque ---
-        def carregar_estoque(filtro="0"):
+        def carregar_estoque(filtro="0", tipo_relatorio="detalhado"):
             msg_consulta.value = "🔄 Pesquisando..."
             msg_consulta.color = "blue"
             conteudo.controls.clear()
             page.update()
+
+            # Função auxiliar para ordenar tamanhos
+            def chave_tamanho(tamanho):
+                ordem = ["PP", "P", "M", "G", "GG", "XG", "EG", "XGG", "XXG", "UNICO"]
+                return ordem.index(tamanho.upper()) if tamanho and tamanho.upper() in ordem else len(ordem)
 
             try:
                 db.connect(reuse_if_open=True)
@@ -244,14 +330,13 @@ def view(page: ft.Page):
                     page.update()
                     return
 
-                # --- Agrupar por descrição e depósito ---
+                # --- Agrupar por descrição ---
                 grupos_descricao = {}
                 for u in query:
-                    grupos_descricao.setdefault(u.descricao, {}).setdefault(u.deposito, []).append(u)
+                    grupos_descricao.setdefault(u.descricao, []).append(u)
 
                 # --- Montagem visual ---
-                for descricao, depositos in grupos_descricao.items():
-                    # Cabeçalho principal
+                for descricao, itens in grupos_descricao.items():
                     conteudo.controls.append(
                         ft.Row(
                             [
@@ -262,33 +347,29 @@ def view(page: ft.Page):
                         )
                     )
 
-                    # Subgrupos por depósito
-                    for deposito, itens in depositos.items():
-                        conteudo.controls.append(
-                            ft.Container(
-                                ft.Text(f"Depósito: {deposito}", size=16, weight="bold", color=ft.Colors.GREY_700),
-                                padding=ft.padding.only(left=25, top=5, bottom=5),
-                            )
-                        )
+                    # --- RELATÓRIO RESUMIDO ---
+                    if tipo_relatorio == "resumido":
+                        resumo = {}
+                        for u in itens:
+                            resumo[u.tamanho] = resumo.get(u.tamanho, 0) + u.quantidade_estoque
 
-                        # --- Tabela dentro do depósito ---
+                        tamanhos_ordenados = sorted(resumo.keys(), key=chave_tamanho)
+
                         tabela = ft.DataTable(
                             columns=[
-                                ft.DataColumn(ft.Text("Estado")),
                                 ft.DataColumn(ft.Text("Tamanho")),
-                                ft.DataColumn(ft.Text("Quantidade")),
+                                ft.DataColumn(ft.Text("Quantidade Total")),
                             ],
                             rows=[
                                 ft.DataRow(
                                     cells=[
-                                        ft.DataCell(ft.Text(u.estado)),
-                                        ft.DataCell(ft.Text(u.tamanho)),
-                                        ft.DataCell(ft.Text(str(u.quantidade_estoque))),
+                                        ft.DataCell(ft.Text(t)),
+                                        ft.DataCell(ft.Text(str(resumo[t]))),
                                     ]
                                 )
-                                for u in itens
+                                for t in tamanhos_ordenados
                             ],
-                            column_spacing=30,
+                            column_spacing=60,
                             data_row_min_height=30,
                             data_row_max_height=35,
                         )
@@ -296,6 +377,53 @@ def view(page: ft.Page):
                         conteudo.controls.append(
                             ft.Container(tabela, padding=ft.padding.only(left=45, bottom=5))
                         )
+
+                    # --- RELATÓRIO DETALHADO ---
+                    else:
+                        # Agrupar por depósito
+                        depositos = {}
+                        for u in itens:
+                            depositos.setdefault(u.deposito, []).append(u)
+
+                        for deposito, lista in depositos.items():
+                            conteudo.controls.append(
+                                ft.Container(
+                                    ft.Text(
+                                        f"Depósito: {deposito}",
+                                        size=16,
+                                        weight="bold",
+                                        color=ft.Colors.GREY_700,
+                                    ),
+                                    padding=ft.padding.only(left=25, top=5, bottom=5),
+                                )
+                            )
+
+                            lista_ordenada = sorted(lista, key=lambda x: chave_tamanho(x.tamanho))
+
+                            tabela = ft.DataTable(
+                                columns=[
+                                    ft.DataColumn(ft.Text("Estado")),
+                                    ft.DataColumn(ft.Text("Tamanho")),
+                                    ft.DataColumn(ft.Text("Quantidade")),
+                                ],
+                                rows=[
+                                    ft.DataRow(
+                                        cells=[
+                                            ft.DataCell(ft.Text(u.estado)),
+                                            ft.DataCell(ft.Text(u.tamanho)),
+                                            ft.DataCell(ft.Text(str(u.quantidade_estoque))),
+                                        ]
+                                    )
+                                    for u in lista_ordenada
+                                ],
+                                column_spacing=30,
+                                data_row_min_height=30,
+                                data_row_max_height=35,
+                            )
+
+                            conteudo.controls.append(
+                                ft.Container(tabela, padding=ft.padding.only(left=45, bottom=5))
+                            )
 
                     conteudo.controls.append(ft.Divider(thickness=1, color=ft.Colors.GREY_400))
 
@@ -308,7 +436,7 @@ def view(page: ft.Page):
                             on_click=lambda e: exportar_para_pdf_flet(
                                 page,
                                 "Estoque Atual",
-                                ["Descrição", "Depósito", "Estado", "Tamanho", "Quantidade"],
+                                ["Descrição", "Tamanho", "Quantidade"],
                                 None,
                             ),
                         ),
@@ -326,17 +454,26 @@ def view(page: ft.Page):
             finally:
                 db.close()
                 page.update()
+        dd_tipo_relatorio = ft.Dropdown(
+            label="Tipo de relatório",
+            options=[
+                ft.dropdown.Option("detalhado", "Detalhado"),
+                ft.dropdown.Option("resumido", "Resumido"),
+            ],
+            value="detalhado",
+            width=200,
+        )
 
         # --- Botão de pesquisa ---
         btn_pesquisar = ft.ElevatedButton(
             "Pesquisar",
-            on_click=lambda e: carregar_estoque(dd_uniformes.value),
+            on_click=lambda e: carregar_estoque(dd_uniformes.value, dd_tipo_relatorio.value),
         )
 
         return ft.Column(
             [
                 ft.Text("📦 Relatório de Estoque Atual", size=20, weight="bold"),
-                ft.Row([dd_uniformes, btn_pesquisar], spacing=10),
+                ft.Row([dd_uniformes, dd_tipo_relatorio, btn_pesquisar], spacing=10),
                 msg_consulta,
                 conteudo,
             ],
