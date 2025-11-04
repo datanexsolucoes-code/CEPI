@@ -138,11 +138,26 @@ def view(page: ft.Page):
                     subtotal=subtotal,
                     estado="Novo"
                 )
-                u = item["produto"]
-                u.quantidade_estoque += item["quantidade"]
-                u.estado = "Novo"
-                u.deposito = "Escritório"
-                u.save()
+                # Busca o uniforme correto (considerando descrição, tamanho e depósito)
+                u = Uniforme.select().where(
+                    (Uniforme.descricao == item["produto"].descricao) &
+                    (Uniforme.tamanho == item["tamanho"]) &
+                    (Uniforme.deposito == "Escritório")
+                ).first()
+
+                # Se já existe, atualiza; senão, cria novo registro
+                if u:
+                    u.quantidade_estoque += item["quantidade"]
+                    u.estado = "Novo"
+                    u.save()
+                else:
+                    Uniforme.create(
+                        descricao=item["produto"].descricao,
+                        tamanho=item["tamanho"],
+                        deposito="Escritório",
+                        quantidade_estoque=item["quantidade"],
+                        estado="Novo"
+                    )
 
             msg_compra.value = f"Compra salva com sucesso! ID: {compra.id}"
             msg_compra.color = "green"
@@ -214,9 +229,15 @@ def view(page: ft.Page):
                     def excluir_compra(e):
                         try:
                             for item in ItemCompra.select().where(ItemCompra.compra == c):
-                                u = item.uniforme
-                                u.quantidade_estoque -= item.quantidade
-                                u.save()
+                                u = Uniforme.select().where(
+                                    (Uniforme.descricao == item.uniforme.descricao) &
+                                    (Uniforme.tamanho == item.tamanho) &
+                                    (Uniforme.deposito == "Escritório")
+                                ).first()
+
+                                if u:
+                                    u.quantidade_estoque -= item.quantidade
+                                    u.save()
                             ItemCompra.delete().where(ItemCompra.compra == c).execute()
                             c.delete_instance()
                             msg_consulta.value = f"Compra {c.id} excluída com sucesso."

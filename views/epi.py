@@ -1,5 +1,5 @@
 import flet as ft
-from models.database import Uniforme, Fornecedor, db
+from models.database import Uniforme, db
 
 lista_tamanho = ["P", "M", "G", "GG", "XG", "XGG", "XXG", "G1", "G2", "EGG", "Único"]
 lista_deposito = ["Escritório", "Opala"]
@@ -30,26 +30,9 @@ def view(page: ft.Page):
         options=[ft.dropdown.Option(v) for v in lista_estado],
         width=150
     )
-    fornecedor_dropdown = ft.Dropdown(label="Fornecedor", width=300, options=[])
 
     msg_cadastro = ft.Text(color="red")
     msg_pesquisa = ft.Text(color="red")
-
-    # ---------- FUNÇÃO: Carregar fornecedores ----------
-    def carregar_fornecedores():
-        try:
-            db.connect(reuse_if_open=True)
-            fornecedores = Fornecedor.select().order_by(Fornecedor.nome)
-            fornecedor_dropdown.options = [
-                ft.dropdown.Option(str(f.id), f.nome) for f in fornecedores
-            ]
-        except Exception as ex:
-            msg_cadastro.value = f"Erro ao carregar fornecedores: {ex}"
-            msg_cadastro.color = "red"
-        finally:
-            db.close()
-
-    carregar_fornecedores()
 
     # ---------- FUNÇÃO: Salvar ou Atualizar ----------
     def salvar_epi(e):
@@ -62,11 +45,6 @@ def view(page: ft.Page):
                 epi.quantidade_estoque = int(quantidade_estoque.value or 0)
                 epi.deposito = deposito.value
                 epi.estado = estado.value
-                epi.fornecedor = (
-                    Fornecedor.get_by_id(int(fornecedor_dropdown.value))
-                    if fornecedor_dropdown.value
-                    else None
-                )
                 epi.save()
                 msg_cadastro.value = f"EPI '{descricao.value}' atualizado com sucesso!"
                 msg_cadastro.color = "green"
@@ -77,9 +55,6 @@ def view(page: ft.Page):
                     quantidade_estoque=int(quantidade_estoque.value or 0),
                     deposito=deposito.value,
                     estado=estado.value,
-                    fornecedor=int(fornecedor_dropdown.value)
-                    if fornecedor_dropdown.value
-                    else None,
                 )
                 msg_cadastro.value = f"EPI '{descricao.value}' salvo com sucesso!"
                 msg_cadastro.color = "green"
@@ -90,7 +65,6 @@ def view(page: ft.Page):
             quantidade_estoque.value = ""
             deposito.value = None
             estado.value = None
-            fornecedor_dropdown.value = None
             epi_editavel["id"] = None
 
         except Exception as ex:
@@ -128,11 +102,6 @@ def view(page: ft.Page):
             quantidade_estoque.value = str(epi.quantidade_estoque or 0)
             deposito.value = epi.deposito
             estado.value = epi.estado
-            fornecedor_dropdown.value = (
-                str(epi.fornecedor.id)
-                if getattr(epi, "fornecedor", None)
-                else None
-            )
             epi_editavel["id"] = epi.id
             msg_cadastro.value = f"Editando EPI '{epi.descricao}'"
             msg_cadastro.color = "blue"
@@ -158,7 +127,6 @@ def view(page: ft.Page):
             ft.DataColumn(ft.Text("Estoque")),
             ft.DataColumn(ft.Text("Depósito")),
             ft.DataColumn(ft.Text("Estado")),
-            ft.DataColumn(ft.Text("Fornecedor")),
             ft.DataColumn(ft.Text("Ações")),
         ],
         rows=[],
@@ -179,7 +147,6 @@ def view(page: ft.Page):
 
             rows = []
             for c in query:
-                fornecedor_nome = getattr(c.fornecedor, "nome", "") if getattr(c, "fornecedor", None) else ""
                 rows.append(
                     ft.DataRow(
                         cells=[
@@ -188,7 +155,6 @@ def view(page: ft.Page):
                             ft.DataCell(ft.Text(str(c.quantidade_estoque))),
                             ft.DataCell(ft.Text(str(c.deposito))),
                             ft.DataCell(ft.Text(str(c.estado))),
-                            ft.DataCell(ft.Text(fornecedor_nome)),
                             ft.DataCell(
                                 ft.Row([
                                     ft.IconButton(icon=ft.Icons.EDIT, tooltip="Editar", icon_color="blue",
@@ -227,7 +193,6 @@ def view(page: ft.Page):
         ft.Text("Cadastro de EPI", size=20, weight="bold"),
         descricao,
         ft.Row([tamanho, quantidade_estoque, deposito, estado], wrap=True, spacing=12),
-        fornecedor_dropdown,
         ft.Row([ft.ElevatedButton(text="Salvar", on_click=salvar_epi), msg_cadastro]),
     ], expand=True, scroll="auto")
 

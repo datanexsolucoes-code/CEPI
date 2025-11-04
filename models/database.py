@@ -79,7 +79,7 @@ class Uniforme(BaseModel):
     quantidade_estoque = IntegerField(default=0)
     deposito = CharField()
     estado = CharField()
-    fornecedor = ForeignKeyField(Fornecedor, backref="uniformes")
+    # fornecedor = ForeignKeyField(Fornecedor, backref="uniformes")
 
 
 class Entrega(BaseModel):
