@@ -42,18 +42,18 @@ def salvar_ou_download_pdf(page, pdf_bytes, file_name):
         page.update()
         print("Erro ao exportar PDF:", e)
 
-def exportar_para_pdf_flet(page, titulo, colunas, tabela=None, dados=None):
+def exportar_para_pdf_flet(page, titulo, colunas, tabela=None, dados=None, coluna_total=None):
     """
     Exporta um relatório em PDF compatível com Flet Web e app compilado (PyInstaller).
     Pode receber um ft.DataTable ou uma lista de listas em 'dados'.
+    Se 'coluna_total' for informado, adiciona uma linha com o total acumulado dessa coluna.
     """
     import io
     from datetime import datetime
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
-    import os, sys
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
     buffer = io.BytesIO()
 
@@ -67,37 +67,81 @@ def exportar_para_pdf_flet(page, titulo, colunas, tabela=None, dados=None):
         page.update()
         return
 
-    # --- Gera o PDF ---
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    # --- Cria documento PDF ---
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20, rightMargin=20, topMargin=30, bottomMargin=20)
     elementos = []
 
     styles = getSampleStyleSheet()
+    style_header = ParagraphStyle("header", parent=styles["Normal"], alignment=1, fontName="Helvetica-Bold", fontSize=9, textColor=colors.whitesmoke)
+    style_cell = ParagraphStyle("cell", parent=styles["Normal"], alignment=1, fontSize=8, leading=10)
+    style_total_label = ParagraphStyle("total_label", parent=styles["Normal"], alignment=2, fontName="Helvetica-Bold", fontSize=9)
+    style_total_valor = ParagraphStyle("total_valor", parent=styles["Normal"], alignment=1, fontName="Helvetica-Bold", fontSize=9)
+
     titulo_formatado = Paragraph(f"<b>{titulo}</b>", styles["Title"])
     elementos.append(titulo_formatado)
     elementos.append(Spacer(1, 12))
 
-    tabela_dados = [colunas] + dados
-    t = Table(tabela_dados, repeatRows=1)
-    t.setStyle(TableStyle([
+    # --- Calcula total, se aplicável ---
+    total_geral = None
+    if coluna_total and coluna_total in colunas:
+        idx = colunas.index(coluna_total)
+        total_geral = 0.0
+        for linha in dados:
+            try:
+                valor_str = str(linha[idx]).replace("R$", "").replace(",", ".").strip()
+                total_geral += float(valor_str)
+            except:
+                pass
+
+    # --- Converte dados em Paragraphs ---
+    header_paragraphs = [Paragraph(col, style_header) for col in colunas]
+    dados_formatados = [[Paragraph(str(valor), style_cell) for valor in linha] for linha in dados]
+
+    # --- Adiciona linha de total (agora com Paragraphs corretos) ---
+    if total_geral is not None:
+        linha_total = [Paragraph("", style_cell)] * len(colunas)
+        linha_total[0] = Paragraph("<b>Total Geral:</b>", style_total_label)
+        linha_total[-1] = Paragraph(f"<b>R$ {total_geral:,.2f}</b>", style_total_valor)
+        dados_formatados.append(linha_total)
+
+    tabela_dados = [header_paragraphs] + dados_formatados
+
+    # --- Define largura das colunas ---
+    available_width = doc.width
+    n_cols = len(colunas)
+    colWidths = [available_width / n_cols] * n_cols
+
+    t = Table(tabela_dados, colWidths=colWidths, repeatRows=1, hAlign="CENTER")
+
+    estilo_base = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-        ("GRID", (0, 0), (-1, -1), 1, colors.black),
-    ]))
+        ("BACKGROUND", (0, 1), (-1, -2 if total_geral else -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+    ]
+
+    if total_geral is not None:
+        estilo_base += [
+            ("SPAN", (0, -1), (-2, -1)),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.lightgrey),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("ALIGN", (-1, -1), (-1, -1), "RIGHT"),
+        ]
+
+    t.setStyle(TableStyle(estilo_base))
     elementos.append(t)
 
     doc.build(elementos)
     pdf_bytes = buffer.getvalue()
     buffer.close()
 
-    # --- Nome do arquivo ---
+    # --- Salva PDF ---
     data_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_name = f"{titulo.replace(' ', '_').lower()}_{data_str}.pdf"
-
-    # --- Salva ou baixa ---
     salvar_ou_download_pdf(page, pdf_bytes, file_name)
 
 # View principal
@@ -274,6 +318,7 @@ def view(page: ft.Page):
     # ---------- Estoque Atual ----------
     def gerar_estoque_atual():
         msg_consulta = ft.Text()
+        msg_pdf = ft.Text()
         conteudo = ft.Column(spacing=10, scroll="auto")
 
         # --- Dropdown de descrições distintas ---
@@ -433,11 +478,20 @@ def view(page: ft.Page):
                         ft.ElevatedButton(
                             "📄 Exportar PDF",
                             icon=ft.Icons.PICTURE_AS_PDF,
-                            on_click=lambda e: exportar_para_pdf_flet(
-                                page,
-                                "Estoque Atual",
-                                ["Descrição", "Tamanho", "Quantidade"],
-                                None,
+                            on_click=lambda e: (
+                                exportar_para_pdf_flet(
+                                    page,
+                                    "Estoque Atual",
+                                    ["Depósito", "Descrição", "Estado", "Tamanho", "Quantidade"],
+                                    dados=[
+                                        [c.deposito, c.descricao, c.estado, c.tamanho, c.quantidade_estoque]
+                                        for c in query
+                                    ],
+                                ),
+                                setattr(msg_pdf, "value",
+                                        "✅ PDF gerado em: F:\\Projetos\\CEPI\\exports\\comodatos_ativos.pdf"),
+                                setattr(msg_pdf, "color", "green"),
+                                page.update()
                             ),
                         ),
                         alignment=ft.alignment.center,
@@ -476,6 +530,9 @@ def view(page: ft.Page):
                 ft.Row([dd_uniformes, dd_tipo_relatorio, btn_pesquisar], spacing=10),
                 msg_consulta,
                 conteudo,
+                ft.Row([msg_pdf]
+                       , alignment=ft.MainAxisAlignment.CENTER
+                       ),
             ],
             expand=True,
             scroll="auto",
@@ -499,7 +556,7 @@ def view(page: ft.Page):
             options=[ft.dropdown.Option(str(f.id), f.nome) for f in fornecedores],
             width=200,
         )
-
+        msg_pdf = ft.Text()
         msg_consulta = ft.Text(value="", size=14)
         total_texto = ft.Text(value="", weight="bold", size=16, color=ft.Colors.BLACK)
 
@@ -520,7 +577,7 @@ def view(page: ft.Page):
             "Exportar PDF",
             icon=ft.Icons.PICTURE_AS_PDF,
             visible=False,
-            on_click=lambda e: exportar_para_pdf_flet(
+            on_click=lambda e: (exportar_para_pdf_flet(
                 page,
                 "Compras Realizadas",
                 [
@@ -533,7 +590,13 @@ def view(page: ft.Page):
                     "Subtotal",
                 ],
                 tabela_compras,
+                coluna_total="Subtotal"
             ),
+            setattr(msg_pdf, "value",
+                    "✅ PDF gerado em: F:\\Projetos\\CEPI\\exports\\comodatos_ativos.pdf"),
+            setattr(msg_pdf, "color", "green"),
+            page.update()
+            )
         )
 
         def carregar_tabela(e=None):
@@ -612,6 +675,9 @@ def view(page: ft.Page):
                     scroll="auto",
                 ),
                 msg_consulta,
+                ft.Row([msg_pdf]
+                       , alignment=ft.MainAxisAlignment.CENTER
+                       ),
                 tabela_compras,
                 ft.Container(total_texto, padding=10),
             ],
@@ -649,7 +715,7 @@ def view(page: ft.Page):
             ],
             rows=[]
         )
-
+        msg_pdf = ft.Text()
         total_text = ft.Text(value="Total: R$ 0,00", size=16, weight="bold")
 
         def carregar_tabela(e=None):
@@ -695,18 +761,27 @@ def view(page: ft.Page):
         btn_filtrar = ft.ElevatedButton("Filtrar", on_click=carregar_tabela)
         btn_exportar = ft.ElevatedButton(
             "Exportar PDF",
-            on_click=lambda e: exportar_para_pdf_flet(
+            on_click=lambda e: (exportar_para_pdf_flet(
                 page,
                 "Reparos Realizados",
                 ["Data Reparo", "Fornecedor", "Reparo", "Quantidade", "Valor Unitário", "Subtotal"],
-                tabela_reparos
-            )
+                tabela_reparos,
+                coluna_total="Subtotal"
+            ),
+
+            setattr(msg_pdf, "value",
+                    "✅ PDF gerado em: F:\\Projetos\\CEPI\\exports\\comodatos_ativos.pdf"),
+            setattr(msg_pdf, "color", "green"),
+            page.update())
         )
 
         return ft.Column([
             ft.Row([data_inicio, data_fim, filtro_fornecedor, btn_filtrar, btn_exportar], spacing=10),
+            ft.Row([msg_pdf]
+                   , alignment=ft.MainAxisAlignment.CENTER
+                   ),
             tabela_reparos,
-            total_text
+            total_text,
         ], scroll = "auto")
 
     # Tabs finais

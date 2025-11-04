@@ -13,10 +13,10 @@ def login_view(page: ft.Page, on_login_success):
 
     user_tf = ft.TextField(label="Usuário", width=250)
     psw_tf = ft.TextField(label="Senha", password=True, can_reveal_password=True, width=250)
+    msg_lgn = ft.Text(value="", color="red")
 
     def tentar_login(e):
         db.connect(reuse_if_open=True)
-
         try:
             usuarios_cadastrados = Users.select().count()
 
@@ -28,31 +28,34 @@ def login_view(page: ft.Page, on_login_success):
                     on_login_success()
                     return
                 else:
-                    mostrar_erro("Usuário ou senha incorretos (modo padrão)")
+                    msg_lgn.value = "Usuário ou senha incorretos (modo padrão)"
+                    msg_lgn.color = "red"
+                    page.update()
                     return
 
             # Verifica login pelo banco de dados
             try:
                 user = Users.get(Users.user == user_tf.value)
                 if bcrypt.checkpw(psw_tf.value.encode(), user.psw.encode()):
-                    page.session.set("perfil", user.perfil)  # Salva o perfil
-                    page.session.set("usuario", user.nome)  # Opcional: nome do usuário logado
+                    page.session.set("perfil", user.perfil)
+                    page.session.set("usuario", user.nome)
                     on_login_success()
                 else:
-                    mostrar_erro("Senha incorreta")
+                    msg_lgn.value = "Senha incorreta"
+                    msg_lgn.color = "red"
+                    page.update()
             except Users.DoesNotExist:
-                mostrar_erro("Usuário não encontrado")
+                msg_lgn.value = "Usuário não encontrado"
+                msg_lgn.color = "red"
+                page.update()
 
         except Exception as ex:
-            mostrar_erro(f"Erro ao validar login: {ex}")
+            msg_lgn.value = f"Erro ao validar login: {ex}"
+            msg_lgn.color = "red"
+            page.update()
 
         finally:
             db.close()
-
-    def mostrar_erro(msg):
-        page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="red")
-        page.snack_bar.open = True
-        page.update()
 
     # Layout da tela
     page.views.clear()
@@ -68,7 +71,8 @@ def login_view(page: ft.Page, on_login_success):
                             ft.Text("Login", size=24, weight="bold"),
                             user_tf,
                             psw_tf,
-                            ft.ElevatedButton("Entrar", on_click=tentar_login)
+                            ft.ElevatedButton("Entrar", on_click=tentar_login),
+                            msg_lgn,
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,

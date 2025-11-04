@@ -1,7 +1,7 @@
 import flet as ft
 from datetime import datetime, date
 from collections import defaultdict
-from models.database import Funcionario, Uniforme, Entrega, ItemEntrega, Comodato, db
+from models.database import Funcionario, Uniforme, Fornecedor, Entrega, ItemEntrega, Comodato, db
 
 
 def view(page: ft.Page):
@@ -46,7 +46,7 @@ def view(page: ft.Page):
             page.update()
 
     # Atualiza os dropdowns dependentes com base na descrição do uniforme
-    def atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd):
+    def atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd, fornecedor_dd):
         desc = uniforme_dd.value
         if not desc:
             return
@@ -58,10 +58,12 @@ def view(page: ft.Page):
         estados = sorted({u.estado for u in unis if u.estado})
         tamanhos = sorted({u.tamanho for u in unis if u.tamanho})
         depositos = sorted({u.deposito for u in unis if u.deposito})
+        fornecedores = sorted({u.fornecedor.nome for u in unis if u.fornecedor})
 
         estado_dd.options = [ft.dropdown.Option(e, e) for e in estados]
         tamanho_dd.options = [ft.dropdown.Option(t, t) for t in tamanhos]
         deposito_dd.options = [ft.dropdown.Option(d, d) for d in depositos]
+        fornecedor_dd.options = [ft.dropdown.Option(f, f) for f in fornecedores]
 
         if estados:
             estado_dd.value = estados[0]
@@ -69,6 +71,8 @@ def view(page: ft.Page):
             tamanho_dd.value = tamanhos[0]
         if depositos:
             deposito_dd.value = depositos[0]
+        if fornecedores:
+            fornecedor_dd.value = fornecedores[0]
 
         page.update()
 
@@ -77,14 +81,15 @@ def view(page: ft.Page):
         uniforme_dd = ft.Dropdown(
             label="Uniforme",
             options=uniforme_descr_options,
-            width=250
+            width=200
         )
-        estado_dd = ft.Dropdown(label="Estado", width=150)
-        tamanho_dd = ft.Dropdown(label="Tamanho", width=150)
-        deposito_dd = ft.Dropdown(label="Depósito", width=200)
-        qtd_tf = ft.TextField(label="Quantidade", width=150)
+        estado_dd = ft.Dropdown(label="Estado", width=120)
+        tamanho_dd = ft.Dropdown(label="Tamanho", width=120)
+        deposito_dd = ft.Dropdown(label="Depósito", width=150)
+        fornecedor_dd = ft.Dropdown(label="Fornecedor", width=200)
+        qtd_tf = ft.TextField(label="Quantidade", width=100)
 
-        uniforme_dd.on_change = lambda e: atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd)
+        uniforme_dd.on_change = lambda e: atualizar_dropdowns(uniforme_dd, estado_dd, tamanho_dd, deposito_dd, fornecedor_dd)
 
         linha = ft.Row(
             controls=[
@@ -92,6 +97,7 @@ def view(page: ft.Page):
                 estado_dd,
                 tamanho_dd,
                 deposito_dd,
+                fornecedor_dd,
                 qtd_tf,
                 ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", on_click=lambda e: remover_item(linha))
             ],
@@ -136,13 +142,15 @@ def view(page: ft.Page):
                 estado_dd = row.controls[1]
                 tamanho_dd = row.controls[2]
                 deposito_dd = row.controls[3]
-                qtd_tf = row.controls[4]
+                fornecedor_dd = row.controls[4]
+                qtd_tf = row.controls[5]
 
                 descricao = (uniforme_dd.value or "").strip()
                 qtd_txt = (qtd_tf.value or "").strip()
                 estado = (estado_dd.value or "").strip()
                 tamanho = (tamanho_dd.value or "").strip()
                 deposito = (deposito_dd.value or "").strip()
+                fornecedor_nome = (fornecedor_dd.value or "").strip()
 
                 if not (descricao and qtd_txt):
                     continue
@@ -156,20 +164,25 @@ def view(page: ft.Page):
                     show_message("Quantidade inválida!", "red")
                     return
 
-                # Localiza o uniforme pela combinação (sem nova query global)
+                # Localiza fornecedor
+                try:
+                    fornecedor_obj = Fornecedor.get(Fornecedor.nome == fornecedor_nome)
+                except Fornecedor.DoesNotExist:
+                    show_message(f"Fornecedor '{fornecedor_nome}' não encontrado.", "red")
+                    return
+
+                # Localiza o uniforme pela combinação completa
                 try:
                     uni = Uniforme.get(
                         (Uniforme.descricao == descricao) &
                         (Uniforme.tamanho == tamanho) &
-                        (Uniforme.deposito == deposito)
+                        (Uniforme.deposito == deposito) &
+                        (Uniforme.estado == estado) &
+                        (Uniforme.fornecedor == fornecedor_obj)
                     )
                 except Uniforme.DoesNotExist:
-                    grupo = descr_map.get(descricao, [])
-                    if grupo:
-                        uni = grupo[0]
-                    else:
-                        show_message(f"Uniforme {descricao} não encontrado.", "red")
-                        return
+                    show_message(f"Uniforme '{descricao}' ({tamanho}, {estado}, {deposito}, {fornecedor_nome}) não encontrado.", "red")
+                    return
 
                 if qtd > (uni.quantidade_estoque or 0):
                     show_message(f"Estoque insuficiente para {uni.descricao}.", "red")
@@ -212,8 +225,9 @@ def view(page: ft.Page):
                         ativo=True
                     )
 
+                    # Atualiza o estoque
                     it["uni"].quantidade_estoque = (it["uni"].quantidade_estoque or 0) - it["qtd"]
-                    it["uni"].save()
+                    it["uni"].save(force_insert=False)
 
             show_message("Entrega cadastrada e comodato atualizado!", "green")
             resetar_form()
@@ -269,7 +283,7 @@ def view(page: ft.Page):
                 for item in itens:
                     uni = item.uniforme
                     uni.quantidade_estoque = (uni.quantidade_estoque or 0) + item.quantidade
-                    uni.save()
+                    uni.save(force_insert=False)
 
                 for item in itens:
                     Comodato.update(ativo=False).where(
@@ -320,7 +334,7 @@ def view(page: ft.Page):
                 itens = ItemEntrega.select().where(ItemEntrega.entrega == ent.id)
 
                 itens_column = ft.Column([
-                    ft.Text(f"- {i.uniforme.descricao} (Qtd: {i.quantidade}, Estado: {i.estado}, Tamanho: {i.tamanho})")
+                    ft.Text(f"- {i.uniforme.descricao} (Qtd: {i.quantidade}, Estado: {i.estado}, Tamanho: {i.tamanho}, Fornecedor: {i.uniforme.fornecedor.nome})")
                     for i in itens
                 ], spacing=2)
 
