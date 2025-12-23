@@ -252,11 +252,11 @@ def view(page: ft.Page):
                 # Adiciona último grupo
                 if grupo.controls:
                     conteudo_resultado.controls.append(grupo)
-
-                # Adiciona último grupo
-                if grupo.controls:
-                    conteudo_resultado.controls.append(ft.Container(ft.Divider(color="gray", thickness=1)))
-                    conteudo_resultado.controls.append(grupo)
+                #
+                # # Adiciona último grupo
+                # if grupo.controls:
+                #     conteudo_resultado.controls.append(ft.Container(ft.Divider(color="gray", thickness=1)))
+                #     conteudo_resultado.controls.append(grupo)
 
                 msg_consulta.value = "✅ Consulta concluída."
                 msg_consulta.color = "green"
